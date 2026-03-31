@@ -3,26 +3,25 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
 
-def make_orbit_movie(
-    x_vals, y_vals, t_vals,
-    filename="earth_orbit.gif",
-    fps=60,
-    skip=10,
-    euler_x_vals=None,
-    euler_y_vals=None,
-    euler_t_vals=None
-):
-    # Main trajectory (for example: leapfrog)
+def make_orbit_movie(x_vals, y_vals, t_vals, filename="earth_orbit.gif", fps=60, skip=10, euler_x_vals=None, euler_y_vals=None, euler_t_vals=None, 
+                     vel_x = None, vel_y = None):
+    # Main trajectory
     x_vals = np.asarray(x_vals)[::skip]
     y_vals = np.asarray(y_vals)[::skip]
     t_vals = np.asarray(t_vals)[::skip]
 
+
+    # Check for velocity
+
+    if vel_x is not None and vel_y is not None:
+        vel_x = np.asarray(vel_x)[::skip]
+        vel_y = np.asarray(vel_y)[::skip]
+        speed_vals = np.sqrt(vel_x**2 + vel_y**2)
+    else:
+        speed_vals = None
+
     # Check whether Euler data was provided
-    include_euler = (
-        euler_x_vals is not None and
-        euler_y_vals is not None and
-        euler_t_vals is not None
-    )
+    include_euler = (euler_x_vals is not None and euler_y_vals is not None and euler_t_vals is not None)
 
     if include_euler:
         euler_x_vals = np.asarray(euler_x_vals)[::skip]
@@ -65,21 +64,21 @@ def make_orbit_movie(
 
     ax.set_xlabel("x [AU]")
     ax.set_ylabel("y [AU]")
-    ax.set_title("Earth Orbit Around the Sun")
+    ax.set_title("Voyager Trajectory")
 
-    # Sun
     ax.plot(0, 0, 'yo', markersize=10, label="Sun")
 
-    # Main orbit: leapfrog
-    orbit_line, = ax.plot([], [], '-', lw=1.5, label="Leapfrog")
+    # Main orbit of leapfrog
+    orbit_line, = ax.plot([], [], '-', lw=1.5, label="Jupiter")
     earth_point, = ax.plot([], [], 'o', markersize=8)
 
-    # Optional Euler orbit
+    # optional plot of euler/voyager
     if include_euler:
-        euler_line, = ax.plot([], [], '--', lw=1.5, label="Euler")
+        euler_line, = ax.plot([], [], '--', lw=1.5, label="Voyager")
         euler_point, = ax.plot([], [], 's', markersize=6)
 
     time_text = ax.text(0.02, 0.95, "", transform=ax.transAxes)
+    vel_text  = ax.text(0.02, 0.90, "", transform=ax.transAxes)
     ax.legend(loc="upper right")
 
     def init():
@@ -91,6 +90,7 @@ def make_orbit_movie(
             euler_point.set_data([], [])
 
         time_text.set_text("")
+        vel_text.set_text("")
 
         if include_euler:
             return orbit_line, earth_point, euler_line, euler_point, time_text
@@ -102,18 +102,25 @@ def make_orbit_movie(
         orbit_line.set_data(x_vals[:frame+1], y_vals[:frame+1])
         earth_point.set_data([x_vals[frame]], [y_vals[frame]])
 
+        if speed_vals is not None:
+            vel_text.set_text(f"v = {4.74047*speed_vals[frame]:.3f} km/s")
+        else:
+            vel_text.set_text("")
+
         if include_euler:
             euler_line.set_data(euler_x_vals[:frame+1], euler_y_vals[:frame+1])
             euler_point.set_data([euler_x_vals[frame]], [euler_y_vals[frame]])
 
             time_text.set_text(
-                f"t = {t_vals[frame]:.3f} years"
+                f"t = {12*t_vals[frame]:.3f} months"
             )
 
             return orbit_line, earth_point, euler_line, euler_point, time_text
         else:
-            time_text.set_text(f"t = {t_vals[frame]:.3f} years")
+            time_text.set_text(f"t = {12*t_vals[frame]:.3f} months")
             return orbit_line, earth_point, time_text
+        
+        
 
     anim = FuncAnimation(fig, update, frames=n_frames, init_func=init, blit=True)
     anim.save(filename, writer="pillow", fps=fps)
@@ -161,6 +168,43 @@ def leapfrog(initial_pos, initial_vel, acceleration_func, tot_time, tot_steps, m
 
     return pos_mat_x, pos_mat_y, vel_mat_x, vel_mat_y, time_mat
 
+def leapfrog_voyager(initial_pos, initial_vel, pos_j_x, pos_j_y, acceleration_func, tot_time, tot_steps, m_1=1):
+    x, y = initial_pos
+    vx, vy = initial_vel
+    dt = tot_time / tot_steps
+
+    pos_mat_x = [x]
+    pos_mat_y = [y]
+    vel_mat_x = [vx]
+    vel_mat_y = [vy]
+    time_mat = [0.0]
+
+    ax, ay = acceleration_func(x, y, pos_j_x[0], pos_j_y[0], m_1)
+
+    # half-step velocity
+    vx_half = vx + 0.5 * ax * dt
+    vy_half = vy + 0.5 * ay * dt
+
+    for i in range(tot_steps):
+        # full-step position
+        x += vx_half * dt
+        y += vy_half * dt
+
+        pos_mat_x.append(x)
+        pos_mat_y.append(y)
+        time_mat.append((i + 1) * dt)
+
+        # acceleration at new position
+        ax, ay = acceleration_func(x, y, pos_j_x[i], pos_j_y[i], m_1)
+
+        vel_mat_x.append(vx_half + 0.5 * ax * dt)
+        vel_mat_y.append(vy_half + 0.5 * ay * dt)
+        # full-step half-velocity update
+        vx_half += ax * dt
+        vy_half += ay * dt
+
+    return pos_mat_x, pos_mat_y, vel_mat_x, vel_mat_y, time_mat
+
 def euler_method(initial_pos, initial_vel, acceleration_func, tot_time, tot_steps, m_1=1):
     x, y = initial_pos
     vx, vy = initial_vel
@@ -188,7 +232,7 @@ def euler_method(initial_pos, initial_vel, acceleration_func, tot_time, tot_step
 
     return pos_mat_x, pos_mat_y, vel_mat_x, vel_mat_y, time_mat
 
-
+'''
 initial_pos = [1.0, 0.0]
 initial_vel = [0.0, 2*math.pi]
 
@@ -247,3 +291,33 @@ plt.xlabel('t(years)')
 plt.ylabel('Energy')
 plt.legend(loc=1)
 plt.show()
+'''
+
+# Start of problem 3
+
+# get the trajectory of Jupiter
+initial_pos = [5.2, 0.0]
+initial_vel =  [0.0, 2 * math.pi / math.sqrt(5.2)]
+x_j, y_j, vx_j, vy_j, t_j = leapfrog(initial_pos, initial_vel, gravity_accel, 20, 900)
+#make_orbit_movie(x_j, y_j, t_j, filename="jupiter_check.gif")
+
+# define the potential that voyager will see
+def gravity_accel_voyager(x, y, x_j, y_j, m_1=1, m_2 = 0.000954):
+    r_s = math.sqrt(x**2 + y**2)
+    r_j = math.sqrt((x - x_j)**2 + (y - y_j)**2)
+    factor = -(4 * math.pi**2 * m_1) / (r_s**3) - (4 * math.pi**2 * m_1) / (r_j**3)
+    return factor * x, factor * y
+
+initial_pos_v = [1.0, 0.0]
+initial_vel_v = [0.0,  1.4*(2 * math.pi)]
+x_v, y_v, vx_v, vy_v, t_v = leapfrog_voyager(initial_pos_v, initial_vel_v, x_j, y_j, gravity_accel_voyager, 20, 900)
+make_orbit_movie(x_j, y_j, t_j, euler_x_vals=x_v, euler_y_vals=y_v, euler_t_vals=t_v, vel_x=vx_v, vel_y=vy_v, filename="voyager_traj.gif")
+
+r_mat = []
+v_mat = []
+for i in range(len(x_v)):
+    r_mat.append(math.sqrt((x_v[i] - x_j[i])**2 + (y_v[i] - y_j[i])**2))
+
+
+print(min(r_mat))
+print(t_v[r_mat.index(min(r_mat))])
